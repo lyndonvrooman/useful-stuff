@@ -1,0 +1,60 @@
+version: "3"
+services:
+  db_recipes:
+    restart: always
+    # I seem to recall issues with newer versions when I first installed.  Will maybe have to look again
+    image: postgres:11-alpine 
+    volumes:
+      - ./postgresql:/var/lib/postgresql/data
+    #The scripts that run initially are going to look in this file for a bunch of the configurations to setup the application
+    #You will need to have the .env file there.  If you're on linux, and you try to 'ls', you won't see it.  don't worry though, if you created it, it will be there.
+    #you could always cat it just to be sure
+    env_file:
+      - ./.env
+
+  web_recipes:
+    image: vabene1111/recipes
+    restart: always
+    env_file:
+      - ./.env
+    #You can see that it's not only mounting its own mediafiles directory from it's own root directory
+    #It's then mounting staticfiles and nginx_config from the shared volumes that are created at the bottom
+    volumes:
+      - staticfiles:/opt/recipes/staticfiles
+      - nginx_config:/opt/recipes/nginx/conf.d
+      - ./mediafiles:/opt/recipes/mediafiles
+    # won't start if the databas isn't there
+    depends_on:
+      - db_recipes
+    # I like to have centralized logging for better alerting, so I ship them to my log server
+    logging:
+        driver: gelf
+        options:
+          gelf-address: "my log server"
+
+  nginx_recipes:
+    image: nginx:mainline-alpine
+    restart: always
+    
+    #We only really need the port for nginx.  Everything else can communicate via their host names.  
+    #If this is available to the outside, I recommend at least one more layer between this and the outside
+    ports:
+      - 9280:80
+    env_file:
+      - ./.env
+    # won't start if the application isn't there
+    depends_on:
+      - web_recipes
+    volumes:
+      - nginx_config:/etc/nginx/conf.d:ro
+      - staticfiles:/static
+      - ./mediafiles:/media
+    logging:
+        driver: gelf
+        options:
+          gelf-address: "my log server"
+
+# Creates the volumes that will be shared between containers
+volumes:
+  nginx_config:
+  staticfiles:
